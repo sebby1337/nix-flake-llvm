@@ -2,15 +2,16 @@
 
 let
   llvm = pkgs.llvmPackages_16.llvm;
-  
-  mkOptStage = { name, input, passes, output }: 
+
+  mkOptStage = { name, input, passes, output }:
     pkgs.writeShellScriptBin "stage-${name}" ''
       ${llvm}/bin/opt \
         -load-pass-plugin=$CUSTOM_PASSES_PATH \
-        ${toString passes} \
+        ${toString (lib.concatStringsSep " " passes)} \
         -S ${input} \
         -o ${output}
     '';
+
 
   stage1 = mkOptStage {
     name = "initial";
@@ -25,7 +26,7 @@ let
 
   stage2 = mkOptStage {
     name = "aggressive";
-    input = "./stage1.ll"; 
+    input = "./stage1.ll";
     passes = [
       "-passes=gvn"
       "-passes=licm"
@@ -42,19 +43,19 @@ let
       "-passes=dce"
       "-passes=inline"
     ];
-    output = "./optimized.ll";
+    output = "./optimised.ll";
   };
 
 in {
   inherit stage1 stage2 stage3;
-  
+
   pipeline = pkgs.writeShellScriptBin "run-pipeline" ''
     export CUSTOM_PASSES_PATH="$(pwd)/src/pass/build/libCustomPasses.so"
     
     echo "Starting optimisation pipeline..."
     
     ${stage1}/bin/stage-initial
-    ${stage2}/bin/stage-aggressive  
+    ${stage2}/bin/stage-aggressive
     ${stage3}/bin/stage-final
     
     echo "Pipeline complete. Optimised IR written to optimised.ll"
