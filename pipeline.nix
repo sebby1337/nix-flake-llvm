@@ -3,61 +3,63 @@
 let
   llvm = pkgs.llvmPackages_16.llvm;
 
-  mkOptStage = { name, input, passes, output }:
+  mkOptStage = { name, input, passes, output, enableCustomPass ? true }:
     pkgs.writeShellScriptBin "stage-${name}" ''
       ${llvm}/bin/opt \
-        -load-pass-plugin=$CUSTOM_PASSES_PATH \
+        ${if enableCustomPass then "-load-pass-plugin=$CUSTOM_PASSES_PATH" else ""} \
         ${toString (lib.concatStringsSep " " passes)} \
         -S ${input} \
         -o ${output}
     '';
 
+  stages = {
+    stage1 = mkOptStage {
+      name = "initial";
+      input = "./main.ll";
+      passes = [
+        "-passes=mem2reg"
+        "-passes=instcombine"
+        "-passes=simplifycfg"
+      ];
+      output = "./stage1.ll";
+      enableCustomPass = false;
+    };
 
-  stage1 = mkOptStage {
-    name = "initial";
-    input = "./main.ll";
-    passes = [
-      "-passes=mem2reg"
-      "-passes=instcombine"
-      "-passes=simplifycfg"
-    ];
-    output = "./stage1.ll";
+    stage2 = mkOptStage {
+      name = "aggressive";
+      input = "./stage1.ll";
+      passes = [
+        "-passes=gvn"
+        "-passes=licm"
+        "-passes=loop-unroll"
+        "-passes=custom-lsr"
+      ];
+      output = "./stage2.ll";
+      enableCustomPass = true;
+    };
+
+    stage3 = mkOptStage {
+      name = "final";
+      input = "./stage2.ll";
+      passes = [
+        "-passes=dce"
+        "-passes=inline"
+      ];
+      output = "./optimized.ll";
+      enableCustomPass = false;
+    };
   };
-
-  stage2 = mkOptStage {
-    name = "aggressive";
-    input = "./stage1.ll";
-    passes = [
-      "-passes=gvn"
-      "-passes=licm"
-      "-passes=loop-unroll"
-      "-passes=custom-lsr"
-    ];
-    output = "./stage2.ll";
-  };
-
-  stage3 = mkOptStage {
-    name = "final";
-    input = "./stage2.ll";
-    passes = [
-      "-passes=dce"
-      "-passes=inline"
-    ];
-    output = "./optimised.ll";
-  };
-
-in {
-  inherit stage1 stage2 stage3;
 
   pipeline = pkgs.writeShellScriptBin "run-pipeline" ''
     export CUSTOM_PASSES_PATH="$(pwd)/src/pass/build/libCustomPasses.so"
     
-    echo "Starting optimisation pipeline..."
+    for stage in ${toString (lib.concatStringsSep " " (builtins.attrNames stages))}; do
+      ${stages}.${stage}/bin/${"stage-${stage}"}
+    done
     
-    ${stage1}/bin/stage-initial
-    ${stage2}/bin/stage-aggressive
-    ${stage3}/bin/stage-final
-    
-    echo "Pipeline complete. Optimised IR written to optimised.ll"
+    echo "Pipeline complete. Optimised IR written to optimized.ll"
   '';
+
+in {
+  inherit stages pipeline;
 }
