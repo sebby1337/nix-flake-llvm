@@ -5,11 +5,15 @@ let
 
   mkOptStage = { name, input, passes, output, enableCustomPass ? true }:
     pkgs.writeShellScriptBin "stage-${name}" ''
-      ${llvm}/bin/opt \
-        ${if enableCustomPass then "-load-pass-plugin=$CUSTOM_PASSES_PATH" else ""} \
-        ${toString (lib.concatStringsSep " " passes)} \
-        -S ${input} \
-        -o ${output}
+      if [ -f ${output} ]; then
+        echo "Using cached ${output}"
+      else
+        ${llvm}/bin/opt \
+          ${if enableCustomPass then "-load-pass-plugin=$CUSTOM_PASSES_PATH" else ""} \
+          ${toString (lib.concatStringsSep " " passes)} \
+          -S ${input} \
+          -o ${output}
+      fi
     '';
 
   stages = {
